@@ -18,13 +18,13 @@ type conn struct {
 }
 
 func (c *conn) Write(p []byte) (int, error) {
+	c.Lock()
+	defer c.Unlock()
+
 	resp, err := query(p)
 	if err != nil {
 		return 0, err
 	}
-	c.Lock()
-	defer c.Unlock()
-
 	c.buf = append(c.buf, resp...)
 	return len(p), nil
 }
