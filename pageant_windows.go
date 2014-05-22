@@ -1,5 +1,5 @@
 /*
-Package pageant is an interface to PyTTY pageant.exe utility
+Package pageant provides an interface to PyTTY pageant.exe utility.
 
 This package is windows-only
 */

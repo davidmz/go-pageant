@@ -1,5 +1,4 @@
-Package pageant is a small package for sending queries and receiving answers
-to/from PyTTY pageant.exe utility.
+Package pageant provides an interface to PyTTY pageant.exe utility.
 
 This package is windows-only.
 
