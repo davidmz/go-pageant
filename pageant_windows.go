@@ -1,8 +1,7 @@
 /*
-Package pageant is a small package for sending queries and receiving answers
-to/from PyTTY pageant.exe utility.
+Package pageant is an interface to PyTTY pageant.exe utility
 
-This package is windows-only.
+This package is windows-only
 */
 package pageant
 
@@ -10,42 +9,76 @@ package pageant
 // see https://github.com/paramiko/paramiko/blob/master/paramiko/win_pageant.py
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync"
 	. "syscall"
 	. "unsafe"
 )
 
+// Maximum size of message can be sent to pageant
+const MaxMessageLen = 8192
+
 var (
 	ErrPageantNotFound = errors.New("Pageant process not found")
-	ErrMessageTooLong  = errors.New("Message too long")
 	ErrSendMessage     = errors.New("Error sending message")
+
+	ErrMessageTooLong       = errors.New("Message too long")
+	ErrInvalidMessageFormat = errors.New("Invalid message format")
+	ErrResponseTooLong      = errors.New("Response too long")
 )
+
+/////////////////////////
 
 const (
-	// Maximum size of the message can be sent to pageant
-	MaxMessageLen = 8192 - 4
+	agentCopydataID = 0x804e50ba
+	wmCopydata      = 74
 )
 
-// IsActive returns true if Pageant process is active and can be queried.
-func IsActive() bool {
-	return 0 == getPageantWindow()
+type copyData struct {
+	dwData uintptr
+	cbData uint32
+	lpData Pointer
+}
+
+var (
+	lock sync.Mutex
+
+	winFindWindow         = winAPI("user32.dll", "FindWindowW")
+	winGetCurrentThreadId = winAPI("kernel32.dll", "GetCurrentThreadId")
+	winSendMessage        = winAPI("user32.dll", "SendMessageW")
+)
+
+func winAPI(dllName, funcName string) func(...uintptr) (uintptr, uintptr, error) {
+	proc := MustLoadDLL(dllName).MustFindProc(funcName)
+	return func(a ...uintptr) (uintptr, uintptr, error) { return proc.Call(a...) }
 }
 
 // Query sends message msg to Pageant and returns response or error.
-func Query(msg []byte) ([]byte, error) {
+// 'msg' is raw agent request with length prefix
+// Response is raw agent response with length prefix
+func query(msg []byte) ([]byte, error) {
 	if len(msg) > MaxMessageLen {
 		return nil, ErrMessageTooLong
 	}
 
-	paWin := getPageantWindow()
+	msgLen := binary.BigEndian.Uint32(msg[:4])
+	if len(msg) != int(msgLen)+4 {
+		return nil, ErrInvalidMessageFormat
+	}
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	nameP, _ := UTF16PtrFromString("Pageant")
+	paWin, _, _ := winFindWindow(uintptr(Pointer(nameP)), uintptr(Pointer(nameP)))
+
 	if paWin == 0 {
 		return nil, ErrPageantNotFound
 	}
 
-	thId, _, _ := MustLoadDLL("kernel32.dll").MustFindProc("GetCurrentThreadId").Call()
+	thId, _, _ := winGetCurrentThreadId()
 	mapName := fmt.Sprintf("PageantRequest%08x", thId)
 	pMapName, _ := UTF16PtrFromString(mapName)
 
@@ -59,55 +92,33 @@ func Query(msg []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer UnmapViewOfFile(ptr)
 
 	mmSlice := (*(*[MaxMessageLen]byte)(Pointer(ptr)))[:]
 
-	buf := &bytes.Buffer{}
-	binary.Write(buf, binary.BigEndian, uint32(len(msg)))
-	binary.Write(buf, binary.BigEndian, msg)
+	copy(mmSlice, msg)
 
-	copy(mmSlice, buf.Bytes())
+	mapNameBytesZ := append([]byte(mapName), 0)
 
 	cds := copyData{
 		dwData: agentCopydataID,
-		cbData: uint32(len(mapName) + 1),
-		lpData: Pointer(&([]byte(mapName))[0]),
+		cbData: uint32(len(mapNameBytesZ)),
+		lpData: Pointer(&(mapNameBytesZ[0])),
 	}
 
-	resp, _, _ := MustLoadDLL("user32.dll").MustFindProc("SendMessageW").Call(
-		paWin,
-		wmCopydata,
-		0,
-		uintptr(Pointer(&cds)),
-	)
+	resp, _, _ := winSendMessage(paWin, wmCopydata, 0, uintptr(Pointer(&cds)))
+
 	if resp == 0 {
 		return nil, ErrSendMessage
 	}
 
 	respLen := binary.BigEndian.Uint32(mmSlice[:4])
-	respData := mmSlice[4 : respLen+4]
+	if respLen > MaxMessageLen-4 {
+		return nil, ErrResponseTooLong
+	}
+
+	respData := make([]byte, respLen+4)
+	copy(respData, mmSlice)
 
 	return respData, nil
-}
-
-/////// Internals ////////
-
-const (
-	agentCopydataID = 0x804e50ba
-	wmCopydata      = 74
-)
-
-type copyData struct {
-	dwData uintptr
-	cbData uint32
-	lpData Pointer
-}
-
-func getPageantWindow() uintptr {
-	nameP, _ := UTF16PtrFromString("Pageant")
-	win, _, _ := MustLoadDLL("user32.dll").MustFindProc("FindWindowW").Call(
-		uintptr(Pointer(nameP)),
-		uintptr(Pointer(nameP)),
-	)
-	return win
 }
