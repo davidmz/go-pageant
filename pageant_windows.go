@@ -55,6 +55,9 @@ func winAPI(dllName, funcName string) func(...uintptr) (uintptr, uintptr, error)
 	return func(a ...uintptr) (uintptr, uintptr, error) { return proc.Call(a...) }
 }
 
+// Available returns true if Pageant is started
+func Available() bool { return pageantWindow() != 0 }
+
 // Query sends message msg to Pageant and returns response or error.
 // 'msg' is raw agent request with length prefix
 // Response is raw agent response with length prefix
@@ -71,8 +74,7 @@ func query(msg []byte) ([]byte, error) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	nameP, _ := UTF16PtrFromString("Pageant")
-	paWin, _, _ := winFindWindow(uintptr(Pointer(nameP)), uintptr(Pointer(nameP)))
+	paWin := pageantWindow()
 
 	if paWin == 0 {
 		return nil, ErrPageantNotFound
@@ -121,4 +123,10 @@ func query(msg []byte) ([]byte, error) {
 	copy(respData, mmSlice)
 
 	return respData, nil
+}
+
+func pageantWindow() uintptr {
+	nameP, _ := UTF16PtrFromString("Pageant")
+	h, _, _ := winFindWindow(uintptr(Pointer(nameP)), uintptr(Pointer(nameP)))
+	return h
 }
