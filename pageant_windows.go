@@ -21,12 +21,12 @@ import (
 const MaxMessageLen = 8192
 
 var (
-	ErrPageantNotFound = errors.New("Pageant process not found")
-	ErrSendMessage     = errors.New("Error sending message")
+	ErrPageantNotFound = errors.New("pageant process not found")
+	ErrSendMessage     = errors.New("error sending message")
 
-	ErrMessageTooLong       = errors.New("Message too long")
-	ErrInvalidMessageFormat = errors.New("Invalid message format")
-	ErrResponseTooLong      = errors.New("Response too long")
+	ErrMessageTooLong       = errors.New("message too long")
+	ErrInvalidMessageFormat = errors.New("invalid message format")
+	ErrResponseTooLong      = errors.New("response too long")
 )
 
 /////////////////////////
@@ -46,7 +46,7 @@ var (
 	lock sync.Mutex
 
 	winFindWindow         = winAPI("user32.dll", "FindWindowW")
-	winGetCurrentThreadId = winAPI("kernel32.dll", "GetCurrentThreadId")
+	winGetCurrentThreadID = winAPI("kernel32.dll", "GetCurrentThreadId")
 	winSendMessage        = winAPI("user32.dll", "SendMessageW")
 )
 
@@ -80,8 +80,8 @@ func query(msg []byte) ([]byte, error) {
 		return nil, ErrPageantNotFound
 	}
 
-	thId, _, _ := winGetCurrentThreadId()
-	mapName := fmt.Sprintf("PageantRequest%08x", thId)
+	thID, _, _ := winGetCurrentThreadID()
+	mapName := fmt.Sprintf("PageantRequest%08x", thID)
 	pMapName, _ := UTF16PtrFromString(mapName)
 
 	mmap, err := CreateFileMapping(InvalidHandle, nil, PAGE_READWRITE, 0, MaxMessageLen+4, pMapName)
