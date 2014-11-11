@@ -4,10 +4,10 @@ import (
 	"io"
 	"sync"
 
-	"code.google.com/p/go.crypto/ssh/agent"
+	"golang.org/x/crypto/ssh/agent"
 )
 
-// New returns new ssh-agent instance (see code.google.com/p/go.crypto/ssh/agent)
+// New returns new ssh-agent instance (see http://golang.org/x/crypto/ssh/agent)
 func New() agent.Agent {
 	return agent.NewClient(&conn{})
 }
