@@ -13,7 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	. "syscall"
+	"syscall"
 	"unsafe"
 )
 
@@ -51,7 +51,7 @@ var (
 )
 
 func winAPI(dllName, funcName string) func(...uintptr) (uintptr, uintptr, error) {
-	proc := MustLoadDLL(dllName).MustFindProc(funcName)
+	proc := syscall.MustLoadDLL(dllName).MustFindProc(funcName)
 	return func(a ...uintptr) (uintptr, uintptr, error) { return proc.Call(a...) }
 }
 
@@ -82,19 +82,19 @@ func query(msg []byte) ([]byte, error) {
 
 	thID, _, _ := winGetCurrentThreadID()
 	mapName := fmt.Sprintf("PageantRequest%08x", thID)
-	pMapName, _ := UTF16PtrFromString(mapName)
+	pMapName, _ := syscall.UTF16PtrFromString(mapName)
 
-	mmap, err := CreateFileMapping(InvalidHandle, nil, PAGE_READWRITE, 0, MaxMessageLen+4, pMapName)
+	mmap, err := syscall.CreateFileMapping(syscall.InvalidHandle, nil, syscall.PAGE_READWRITE, 0, MaxMessageLen+4, pMapName)
 	if err != nil {
 		return nil, err
 	}
-	defer CloseHandle(mmap)
+	defer syscall.CloseHandle(mmap)
 
-	ptr, err := MapViewOfFile(mmap, FILE_MAP_WRITE, 0, 0, 0)
+	ptr, err := syscall.MapViewOfFile(mmap, syscall.FILE_MAP_WRITE, 0, 0, 0)
 	if err != nil {
 		return nil, err
 	}
-	defer UnmapViewOfFile(ptr)
+	defer syscall.UnmapViewOfFile(ptr)
 
 	mmSlice := (*(*[MaxMessageLen]byte)(unsafe.Pointer(ptr)))[:]
 
@@ -126,7 +126,7 @@ func query(msg []byte) ([]byte, error) {
 }
 
 func pageantWindow() uintptr {
-	nameP, _ := UTF16PtrFromString("Pageant")
+	nameP, _ := syscall.UTF16PtrFromString("Pageant")
 	h, _, _ := winFindWindow(uintptr(unsafe.Pointer(nameP)), uintptr(unsafe.Pointer(nameP)))
 	return h
 }
