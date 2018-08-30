@@ -1,8 +1,5 @@
-/*
-Package pageant provides an interface to PyTTY pageant.exe utility.
-
-This package is windows-only
-*/
+// Package pageant provides an interface to PyTTY pageant.exe utility.
+// This package is windows-only
 package pageant
 
 // see https://github.com/Yasushi/putty/blob/master/windows/winpgntc.c#L155
@@ -17,16 +14,21 @@ import (
 	"unsafe"
 )
 
-// Maximum size of message can be sent to pageant
+// MaxMessageLen defines maximum size of message can be sent to pageant
 const MaxMessageLen = 8192
 
 var (
+	// ErrPageantNotFound returns when pageant process not found
 	ErrPageantNotFound = errors.New("pageant process not found")
-	ErrSendMessage     = errors.New("error sending message")
+	// ErrSendMessage returns when message to pageant cannt be sent
+	ErrSendMessage = errors.New("error sending message")
 
-	ErrMessageTooLong       = errors.New("message too long")
+	// ErrMessageTooLong returns when message is too long (see MaxMessageLen)
+	ErrMessageTooLong = errors.New("message too long")
+	// ErrInvalidMessageFormat returns when message have invalid fomat
 	ErrInvalidMessageFormat = errors.New("invalid message format")
-	ErrResponseTooLong      = errors.New("response too long")
+	// ErrResponseTooLong returns when response from pageant is too long
+	ErrResponseTooLong = errors.New("response too long")
 )
 
 /////////////////////////
