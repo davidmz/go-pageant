@@ -4,11 +4,16 @@ package pageant
 
 import (
 	"bytes"
+	"errors"
 	"flag"
+	"fmt"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/sys/windows"
 )
 
 // Tests that need Pageant are skipped when it is not running.
@@ -58,6 +63,21 @@ func TestConnDropsStaleData(t *testing.T) {
 	}
 	if bytes.Contains(c.buf, []byte("stale")) {
 		t.Fatal("stale data left in buffer")
+	}
+}
+
+func TestQueryRejectsSquattedMapping(t *testing.T) {
+	requirePageant(t)
+	next := fmt.Sprintf("PageantRequest%08x%08x", os.Getpid(), atomic.LoadUint32(&requestCounter)+1)
+	name, _ := windows.UTF16PtrFromString(next)
+	h, err := windows.CreateFileMapping(windows.InvalidHandle, nil, windows.PAGE_READWRITE, 0, 4096, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(h)
+
+	if _, err := query([]byte{0, 0, 0, 1, 11}); !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		t.Fatalf("got %v, want ERROR_ALREADY_EXISTS", err)
 	}
 }
 
