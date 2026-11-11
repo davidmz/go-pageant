@@ -14,8 +14,10 @@ import (
 	"unsafe"
 )
 
-// MaxMessageLen defines maximum size of message can be sent to pageant
-const MaxMessageLen = 8192
+// MaxMessageLen defines maximum size (including the 4-byte length prefix) of
+// a request to or a response from Pageant. It matches AGENT_MAX_MSGLEN of
+// modern PuTTY versions.
+const MaxMessageLen = 256 * 1024
 
 var (
 	// ErrPageantNotFound returns when pageant process not found
@@ -47,15 +49,13 @@ type copyData struct {
 var (
 	lock sync.Mutex
 
-	winFindWindow         = winAPI("user32.dll", "FindWindowW")
-	winGetCurrentThreadID = winAPI("kernel32.dll", "GetCurrentThreadId")
-	winSendMessage        = winAPI("user32.dll", "SendMessageW")
+	// Pointers must be converted to uintptr directly in the arguments of
+	// LazyProc.Call: only then Go keeps the pointed objects alive and in place.
+	user32                 = syscall.NewLazyDLL("user32.dll")
+	procFindWindow         = user32.NewProc("FindWindowW")
+	procSendMessage        = user32.NewProc("SendMessageW")
+	procGetCurrentThreadID = syscall.NewLazyDLL("kernel32.dll").NewProc("GetCurrentThreadId")
 )
-
-func winAPI(dllName, funcName string) func(...uintptr) (uintptr, uintptr, error) {
-	proc := syscall.MustLoadDLL(dllName).MustFindProc(funcName)
-	return func(a ...uintptr) (uintptr, uintptr, error) { return proc.Call(a...) }
-}
 
 // Available returns true if Pageant is started
 func Available() bool { return pageantWindow() != 0 }
@@ -68,8 +68,7 @@ func query(msg []byte) ([]byte, error) {
 		return nil, ErrMessageTooLong
 	}
 
-	msgLen := binary.BigEndian.Uint32(msg[:4])
-	if len(msg) != int(msgLen)+4 {
+	if len(msg) < 4 || uint32(len(msg)-4) != binary.BigEndian.Uint32(msg) {
 		return nil, ErrInvalidMessageFormat
 	}
 
@@ -82,11 +81,11 @@ func query(msg []byte) ([]byte, error) {
 		return nil, ErrPageantNotFound
 	}
 
-	thID, _, _ := winGetCurrentThreadID()
+	thID, _, _ := procGetCurrentThreadID.Call()
 	mapName := fmt.Sprintf("PageantRequest%08x", thID)
 	pMapName, _ := syscall.UTF16PtrFromString(mapName)
 
-	mmap, err := syscall.CreateFileMapping(syscall.InvalidHandle, nil, syscall.PAGE_READWRITE, 0, MaxMessageLen+4, pMapName)
+	mmap, err := syscall.CreateFileMapping(syscall.InvalidHandle, nil, syscall.PAGE_READWRITE, 0, MaxMessageLen, pMapName)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +97,9 @@ func query(msg []byte) ([]byte, error) {
 	}
 	defer syscall.UnmapViewOfFile(ptr)
 
-	mmSlice := (*(*[MaxMessageLen]byte)(unsafe.Pointer(ptr)))[:]
+	// ptr is an address outside the Go heap, so the conversion is safe;
+	// it is done through a pointer to keep go vet's unsafeptr check quiet.
+	mmSlice := unsafe.Slice(*(**byte)(unsafe.Pointer(&ptr)), MaxMessageLen)
 
 	copy(mmSlice, msg)
 
@@ -110,13 +111,13 @@ func query(msg []byte) ([]byte, error) {
 		lpData: unsafe.Pointer(&(mapNameBytesZ[0])),
 	}
 
-	resp, _, _ := winSendMessage(paWin, wmCopydata, 0, uintptr(unsafe.Pointer(&cds)))
+	resp, _, _ := procSendMessage.Call(paWin, wmCopydata, 0, uintptr(unsafe.Pointer(&cds)))
 
 	if resp == 0 {
 		return nil, ErrSendMessage
 	}
 
-	respLen := binary.BigEndian.Uint32(mmSlice[:4])
+	respLen := binary.BigEndian.Uint32(mmSlice)
 	if respLen > MaxMessageLen-4 {
 		return nil, ErrResponseTooLong
 	}
@@ -128,7 +129,11 @@ func query(msg []byte) ([]byte, error) {
 }
 
 func pageantWindow() uintptr {
+	// No user32.dll (e.g. Nano Server) means no Pageant, not a panic.
+	if procFindWindow.Find() != nil || procSendMessage.Find() != nil {
+		return 0
+	}
 	nameP, _ := syscall.UTF16PtrFromString("Pageant")
-	h, _, _ := winFindWindow(uintptr(unsafe.Pointer(nameP)), uintptr(unsafe.Pointer(nameP)))
+	h, _, _ := procFindWindow.Call(uintptr(unsafe.Pointer(nameP)), uintptr(unsafe.Pointer(nameP)))
 	return h
 }

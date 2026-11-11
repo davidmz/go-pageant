@@ -25,7 +25,9 @@ func (c *conn) Write(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	c.buf = append(c.buf, resp...)
+	// Replace, not append: leftovers of a partly read previous response
+	// must not leak into this one.
+	c.buf = resp
 	return len(p), nil
 }
 
